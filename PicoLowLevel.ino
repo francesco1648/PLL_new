@@ -322,7 +322,7 @@ void core1_task() {
     }
 
     display.handleGUI();
-    tight_loop_contents();  //al posto di delay(1)
+    sleep_ms(1); //al posto di delay(1)
 
   }
 }
