@@ -1,5 +1,5 @@
 #include "SmartMotor.h"
-#include  "PID_AutoTune_v0"
+#include  "PID_AutoTune_v0.h"
 
 
 
@@ -91,8 +91,8 @@ void SmartMotor::calibrate() {
   aTune.SetControlType(1);     // 0 = PI, 1 = PID
   aTune.SetLookbackSec(10);    // quanto tempo osserva la risposta
   aTune.SetNoiseBand(1);       // tolleranza sul rumore
-  aTune.SetSampleTime(100);    // ogni quanto valuta
-  aTune.SetRelayStep(50);      // valore step di output
+  //aTune.sampleTime(100);    // ogni quanto valuta
+  //aTune.SetRelayStep(50);      // valore step di output
 
   unsigned long start = millis();
   while (!aTune.Runtime()) {
