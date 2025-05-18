@@ -16,29 +16,9 @@
 #include "PID.h"
 #include "CanWrapper.h"
 
-
 #include "include/definitions.h"
 #include "include/mod_config.h"
 #include "include/communication.h"
-
-//------------------------
-
-#include "hardware/timer.h"
-#include "pico/stdlib.h"
-#include "pico/multicore.h"
-#include "pico/critical_section.h"
-
-
-#define CONTROL_PERIOD_US 10000
-
-
-repeating_timer_t control_timer;
-
-
-
-
-
-//-----------------------
 
 
 
@@ -46,8 +26,6 @@ void okInterrupt();
 void navInterrupt();
 void sendFeedback();
 void handleSetpoint(uint8_t msg_id, const byte* msg_data);
-bool control_loop_callback(struct repeating_timer *t);
-void core1_task();
 
 int time_bat = 0;
 int time_tel = 0;
@@ -110,7 +88,6 @@ void setup() {
   motorTrLeft.calibrate();
   motorTrRight.calibrate();
 
-
 #if defined MODC_EE
   Serial1.setRX(1);
   Serial1.setTX(0);
@@ -134,27 +111,47 @@ void setup() {
   pinMode(BTNNAV, INPUT_PULLUP);
   attachInterrupt(digitalPinToInterrupt(BTNOK), okInterrupt, FALLING);
   attachInterrupt(digitalPinToInterrupt(BTNNAV), navInterrupt, FALLING);
-//-------------------------------------------
-    bool timer_ok = add_repeating_timer_us(
-    -CONTROL_PERIOD_US,        // negativo = callback viene chiamata regolarmente
-    control_loop_callback,     // funzione da eseguire
-    NULL,                      // argomenti opzionali (non usati)
-    &control_timer             // struttura timer
-  );
-
-  if (!timer_ok) {
-    Serial.println("Errore: timer non inizializzato!");
-  }
-
-   multicore_launch_core1(core1_task);
-
-
-   //--------------------------------------------
 
 }
 
 void loop() {
+  int time_cur = millis();
+  uint8_t msg_id;
+  byte msg_data[8];
+
+  // update motors
+  motorTrLeft.update();
+  motorTrRight.update();
+
   // health checks
+  if (time_cur - time_bat >= DT_BAT) {
+    time_bat = time_cur;
+
+    if (time_tel_avg > DT_TEL) Debug.println("Telemetry frequency below required: " + String(1000/time_tel_avg) + " Hz", Levels::WARN);
+
+    if(!battery.charged()) Debug.println("Battery voltage low! " + String(battery.readVoltage()) + "v", Levels::WARN);
+  }
+
+  // send telemetry
+  if (time_cur - time_tel >= DT_TEL) {
+    time_tel_avg = (time_tel_avg + (time_cur - time_tel)) / 2;
+    time_tel = time_cur;
+
+    sendFeedback();
+  }
+
+  if (canW.readMessage(&msg_id, msg_data)) {
+
+    // Received CAN message with setpoint
+    time_data = time_cur;
+    handleSetpoint(msg_id, msg_data);
+  } else if (time_cur - time_data > CAN_TIMEOUT && time_data != -1) {
+    //if we do not receive data for more than a second stop motors
+    time_data = -1;
+    Debug.println("Stopping motors after timeout.", Levels::INFO);
+    motorTrLeft.stop();
+    motorTrRight.stop();
+  }
 
   //wm.handle();
   display.handleGUI();
@@ -170,24 +167,15 @@ void handleSetpoint(uint8_t msg_id, const byte* msg_data) {
   Debug.println("RECEIVED CANBUS DATA");
 
   switch (msg_id) {
-  case MOTOR_SETPOINT: {
-    float leftSpeed, rightSpeed;
-    memcpy(&leftSpeed,  msg_data,    sizeof(leftSpeed));
-    memcpy(&rightSpeed, msg_data + 4, sizeof(rightSpeed));
-    // Trasforma bit‑wise in uint32_t
-    uint32_t lw = *reinterpret_cast<uint32_t*>(&leftSpeed);
-    uint32_t rw = *reinterpret_cast<uint32_t*>(&rightSpeed);
-    // Push atomico in hardware FIFO inter‑core
-    multicore_fifo_push_blocking(lw);
-    multicore_fifo_push_blocking(rw);
-    Debug.println(
-      "TRACTION DATA (pushed FIFO): left=" + String(leftSpeed) +
-      " right=" + String(rightSpeed)
-    );
-    break;
+    case MOTOR_SETPOINT:
+      float leftSpeed, rightSpeed;
+      memcpy(&leftSpeed, msg_data, 4);
+      memcpy(&rightSpeed, msg_data + 4, 4);
+      motorTrLeft.setSpeed(leftSpeed);
+      motorTrRight.setSpeed(rightSpeed);
 
-}
-
+      Debug.println("TRACTION DATA :\tleft: \t" + String(leftSpeed) + "\tright: \t" + String(rightSpeed));
+      break;
 
     case DATA_EE_PITCH_SETPOINT:
       memcpy(&servo_data, msg_data, 2);
@@ -256,73 +244,5 @@ void okInterrupt() {
 }
 
 void navInterrupt() {
-
-
-
-
-
   display.navInterrupt();
-}
-
-
-
-
-// Funzione che viene chiamata ogni CONTROL_PERIOD_US microsecondi
-
-
-  bool control_loop_callback(struct repeating_timer *t) {
-
-  if (multicore_fifo_rvalid()) {
-    uint32_t lw = multicore_fifo_pop_blocking();
-    uint32_t rw = multicore_fifo_pop_blocking();
-    float left  = *reinterpret_cast<float*>(&lw);
-    float right = *reinterpret_cast<float*>(&rw);
-    motorTrLeft.setSpeed(left);
-    motorTrRight.setSpeed(right);
-  }
-  // Poi aggiorno i motori in ogni caso
-  motorTrLeft.update();
-  motorTrRight.update();
-  return true;
-}
-
-
-
-
-
-void core1_task() {
-  while (true) {
-    int time_cur = millis();
-    uint8_t msg_id;
-    byte msg_data[8];
-
-    if (time_cur - time_bat >= DT_BAT) {
-      time_bat = time_cur;
-
-      if (time_tel_avg > DT_TEL) Debug.println("Frequenza telemetria sotto il limite: " + String(1000/time_tel_avg) + " Hz", Levels::WARN);
-
-      if(!battery.charged()) Debug.println("Batteria scarica! " + String(battery.readVoltage()) + "v", Levels::WARN);
-    }
-
-    if (time_cur - time_tel >= DT_TEL) {
-      time_tel_avg = (time_tel_avg + (time_cur - time_tel)) / 2;
-      time_tel = time_cur;
-
-      sendFeedback();
-    }
-
-    if (canW.readMessage(&msg_id, msg_data)) {
-      time_data = time_cur;
-      handleSetpoint(msg_id, msg_data);
-    } else if (time_cur - time_data > CAN_TIMEOUT && time_data != -1) {
-      time_data = -1;
-      Debug.println("Arresto motori dopo timeout.", Levels::INFO);
-      motorTrLeft.stop();
-      motorTrRight.stop();
-    }
-
-    display.handleGUI();
-    sleep_ms(1); //al posto di delay(1)
-
-  }
 }

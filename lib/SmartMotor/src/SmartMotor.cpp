@@ -121,8 +121,6 @@ void SmartMotor::calibrate() {
 
   motor.write(0); // ferma il motore
 }
-
-
 /**
  * Converts speed to power.
  * This function linearly scales the speed to the PWM duty cycle, without taking into account the motor's.
