@@ -1,1 +1,9 @@
-build
+
+build/**
+
+# Ma non ignorare questi due file, compilatp MK2_MOD1
+!build/PicoLowLevel.ino.uf2
+!build/PicoLowLevel.ino.bin
+!build/PicoLowLevel.ino.elf
+!build/PicoLowLevel.ino.map
+
