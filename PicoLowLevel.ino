@@ -20,6 +20,16 @@
 #include "include/mod_config.h"
 #include "include/communication.h"
 
+//------------------------
+
+#include "hardware/timer.h"
+
+#define CONTROL_PERIOD_US 10000
+
+
+repeating_timer_t control_timer;
+//-----------------------
+
 
 
 void okInterrupt();
@@ -88,6 +98,18 @@ void setup() {
   motorTrLeft.calibrate();
   motorTrRight.calibrate();
 
+//-------------------------------------------
+    bool timer_ok = add_repeating_timer_us(
+    -CONTROL_PERIOD_US,        // negativo = callback viene chiamata regolarmente
+    control_loop_callback,     // funzione da eseguire
+    NULL,                      // argomenti opzionali (non usati)
+    &control_timer             // struttura timer
+  );
+
+  if (!timer_ok) {
+    Serial.println("Errore: timer non inizializzato!");
+  }
+//--------------------------------------------
 #if defined MODC_EE
   Serial1.setRX(1);
   Serial1.setTX(0);
@@ -244,5 +266,20 @@ void okInterrupt() {
 }
 
 void navInterrupt() {
+
+
+
+
+
   display.navInterrupt();
+}
+
+
+
+
+// Funzione che viene chiamata ogni CONTROL_PERIOD_US microsecondi
+bool control_loop_callback(struct repeating_timer *t) {
+  motorTrLeft.update();
+  motorTrRight.update();
+  return true; // ritorna true per continuare a ripetere
 }
