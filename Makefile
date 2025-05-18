@@ -20,7 +20,7 @@ SUCCESS_SYMBOL = " Compilation completed successfully! "
 ERROR_SYMBOL = " Compilation error! "
 COMPILATION_SYMBOL = " Compilation in progress... "
 
-MODULE_DEFINE ?= "MK1_MOD1"
+MODULE_DEFINE ?= "MK2_MOD1"
 DESTINATION ?=  'E:\'
 
 MODULE =
